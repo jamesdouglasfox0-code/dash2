@@ -16,18 +16,13 @@
   #app { width:100vw; height:100vh; display:grid; grid-template-columns:1fr 380px; gap:20px; padding:20px; }
 
   #main-panel { position:relative; border-radius:var(--panel-radius); overflow:hidden; background:var(--stone); }
-  .focus-panel { position:absolute; inset:0; opacity:0; transform:scale(1.02); transition:opacity var(--transition),transform var(--transition); pointer-events:none; }
-  .focus-panel.active { opacity:1; transform:scale(1); pointer-events:auto; }
-
   #photo-panel { background:#1a1814; }
   #photo-stage { position:absolute; inset:0; display:flex; transition:opacity 1.2s ease; }
   .photo-slot { flex:1; background-size:contain; background-position:center; background-repeat:no-repeat; }
   #photo-overlay { position:absolute; inset:0; background:linear-gradient(to top,rgba(0,0,0,0.6) 0%,rgba(0,0,0,0.1) 45%,transparent 70%); }
-  #photo-counter { position:absolute; top:24px; right:28px; color:rgba(255,255,255,0.5); font-size:12px; letter-spacing:1.5px; }
   #photo-caption { position:absolute; bottom:44px; left:48px; right:48px; color:white; }
   #photo-time { font-family:'DM Serif Display',serif; font-size:64px; line-height:1; letter-spacing:-2px; text-shadow:0 2px 20px rgba(0,0,0,0.3); }
   #photo-date { font-size:17px; font-weight:300; opacity:0.8; margin-top:8px; letter-spacing:0.5px; }
-
 
   #sidebar { display:flex; flex-direction:column; gap:16px; }
   .side-card { background:#111111; border-radius:var(--panel-radius); padding:28px; }
@@ -35,7 +30,7 @@
 
   #weather-card { flex:0 0 auto; }
   #weather-top { display:flex; align-items:flex-end; gap:12px; margin-bottom:18px; }
-  #weather-icon { font-size:48px; line-height:1; padding-bottom:4px; min-width:48px; }
+  #weather-icon { font-size:48px; line-height:1; padding-bottom:4px; min-width:50px; }
   #weather-temp { font-family:'DM Serif Display',serif; font-size:68px; line-height:1; letter-spacing:-3px; }
   #weather-info { padding-bottom:6px; }
   #weather-desc { font-size:15px; color:var(--ink-soft); line-height:1.4; }
@@ -69,13 +64,11 @@
         <div class="photo-slot" id="photo-slot-b"></div>
       </div>
       <div id="photo-overlay"></div>
-
       <div id="photo-caption">
         <div id="photo-time">00:00</div>
         <div id="photo-date"></div>
       </div>
     </div>
-
   </div>
 
   <div id="sidebar">
@@ -98,14 +91,14 @@
     </div>
     <div class="side-card" id="calendar-card">
       <div class="card-label">Upcoming</div>
-      <div id="event-list"><div class="no-data">Loading calendar…</div></div>
+      <div id="event-list"><div class="no-data">No calendar configured</div></div>
     </div>
   </div>
 </div>
 <div id="cast-hint">Cast this tab · Chrome → Cast…</div>
 
 <script>
-// ── PHOTOS — dynamic fetch from Google Photos album ──
+// ── PHOTOS ──
 const ALBUM_URL = 'https://photos.app.goo.gl/gMBLxk4UKXqbAHrU8';
 let photos = [];
 let photoIdx = 0;
@@ -124,7 +117,6 @@ function isPortrait(url) {
   });
 }
 
-// Hardcoded fallback photos (always works)
 const FALLBACK_CODES = [
   "AP1GczNyOljo9g_4A3SxAMIheKSEFvadsSNJ_PeR-5ngM10p5hu3i1sIQime8i-RVCTDpBKHS2Pzz8e4otfNCJ-8MwpfG6L1g_w9qYnYnPNf2fnOYaDGTS2U",
   "AP1GczN5xZzPrsVizC2R0D1KswFCtP0dOS_WuVUsXQ6KMZi0Fi3BE07HE-0onSBtxtEBU2pXdS4OO_cdAr_K73rBDPPEv3Wje4KJgXmR_dX-xFK2J0nMFOuk",
@@ -158,8 +150,7 @@ const FALLBACK_CODES = [
 ];
 
 function loadPhotos(codes) {
-  photos = codes.sort(() => Math.random() - 0.5)
-    .map(c => `https://lh3.googleusercontent.com/pw/${c}=w1920-h1080-k-no`);
+  photos = codes.sort(() => Math.random() - 0.5).map(c => `https://lh3.googleusercontent.com/pw/${c}=w1920-h1080-k-no`);
   photoIdx = 0;
   showPhoto(0);
   startPhotoTimer();
@@ -170,23 +161,17 @@ async function showPhoto(idx) {
   const total = photos.length;
   const urlA = photos[idx % total];
   const portrait = await isPortrait(urlA);
-
   stage.style.opacity = 0;
   await new Promise(r => setTimeout(r, 500));
-
   if (portrait) {
     const urlB = photos[(idx + 1) % total];
     slotA.style.backgroundImage = `url(${urlA})`;
     slotB.style.backgroundImage = `url(${urlB})`;
     slotB.style.display = 'block';
-    new Image().src = photos[(idx + 2) % total];
   } else {
     slotA.style.backgroundImage = `url(${urlA})`;
-    slotB.style.backgroundImage = '';
     slotB.style.display = 'none';
-    new Image().src = photos[(idx + 1) % total];
   }
-
   stage.style.opacity = 1;
 }
 
@@ -201,14 +186,10 @@ function startPhotoTimer() {
 }
 
 async function fetchPhotos() {
-  // Start with fallback immediately so photos always show
   loadPhotos([...FALLBACK_CODES]);
-
-  // Then try to fetch live album in the background
   const proxies = [
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
   ];
   for (const makeUrl of proxies) {
     try {
@@ -216,12 +197,8 @@ async function fetchPhotos() {
       if (!res.ok) continue;
       const html = await res.text();
       const matches = [...html.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/([\w\-]+)/g)];
-      const seen = new Set();
-      const urls = matches
-        .map(m => `https://lh3.googleusercontent.com/pw/${m[1]}=w1920-h1080-k-no`)
-        .filter(u => { if (seen.has(u)) return false; seen.add(u); return true; });
+      const urls = [...new Set(matches.map(m => `https://lh3.googleusercontent.com/pw/${m[1]}=w1920-h1080-k-no`))];
       if (urls.length === 0) continue;
-      // Live album loaded — replace fallback photos
       photos = urls.sort(() => Math.random() - 0.5);
       photoIdx = 0;
       showPhoto(0);
@@ -229,149 +206,42 @@ async function fetchPhotos() {
       return;
     } catch(e) { continue; }
   }
-  // Proxies failed — fallback already running, nothing more to do
-  console.warn('Live album fetch failed, using fallback photos');
 }
 
 // ── WEATHER ──
-const OW_KEY = '416e752b0492243ebe3c6e7989f9cde7';
-const W_ICONS = { Clear:'☀️',Clouds:'⛅',Rain:'🌧️',Drizzle:'🌦️',Thunderstorm:'⛈️',Snow:'❄️',Mist:'🌫️',Fog:'🌫️',Haze:'🌫️' };
 async function fetchWeather() {
   try {
-    const d = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent('Newcastle upon Tyne,GB')}&appid=${OW_KEY}&units=metric`).then(r=>r.json());
-    if (d.cod!==200) return;
-    document.getElementById('weather-icon').textContent = W_ICONS[d.weather[0].main]||'🌡️';
-    document.getElementById('weather-temp').textContent = `${Math.round(d.main.temp)}°`;
-    const desc = d.weather[0].description;
-    document.getElementById('weather-desc').textContent = desc.charAt(0).toUpperCase()+desc.slice(1);
-    document.getElementById('weather-loc').textContent  = `${d.name}, ${d.sys.country}`;
-    document.getElementById('wd-feels').textContent = `${Math.round(d.main.feels_like)}°C`;
-    document.getElementById('wd-hum').textContent   = `${d.main.humidity}%`;
-    document.getElementById('wd-wind').textContent  = `${Math.round(d.wind.speed)} m/s`;
-    document.getElementById('wd-vis').textContent   = `${((d.visibility||0)/1000).toFixed(1)} km`;
-  } catch(e) { console.error('Weather fetch error:', e); }
-}
-
-// ── CALENDAR — with improved proxy strategy ──
-const ICAL_URLS = [
-  'https://calendar.google.com/calendar/ical/jamesdouglasfox0%40gmail.com/private-0919ba055d154812e7522afed138adce/basic.ics',
-  'https://calendar.google.com/calendar/ical/francesallanpr%40gmail.com/private-48588be9caf9c4e0de3c3b2278194a52/basic.ics'
-];
-
-async function fetchOneCalendar(icalUrl) {
-  const proxies = [
-    url => url,
-    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  ];
-  
-  for (const makeUrl of proxies) {
-    try {
-      const proxyUrl = makeUrl(icalUrl);
-      console.log('Trying calendar proxy:', proxyUrl.substring(0, 80) + '...');
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
-      if (!res.ok) {
-        console.warn(`Proxy returned ${res.status}`);
-        continue;
-      }
-      const text = await res.text();
-      if (!text.includes('BEGIN:VCALENDAR')) {
-        console.warn('Response did not contain VCALENDAR');
-        continue;
-      }
-      const events = parseIcal(text);
-      console.log(`Successfully fetched ${events.length} events from calendar`);
-      return events;
-    } catch(e) { 
-      console.warn('Calendar fetch error:', e.message);
-      continue; 
-    }
-  }
-  console.error('All proxies failed for calendar');
-  return [];
-}
-
-async function fetchCalendar() {
-  try {
-    const results = await Promise.all(ICAL_URLS.map(fetchOneCalendar));
-    const allEvents = results.flat().sort((a,b) => a.dt - b.dt).slice(0, 7);
-    if (allEvents.length) {
-      renderEvents(allEvents);
-    } else {
-      document.getElementById('event-list').innerHTML =
-        '<span class="no-data">No upcoming events<br><span class="cal-status">(or calendar unavailable)</span></span>';
-    }
-  } catch(e) {
-    console.error('fetchCalendar error:', e);
-    document.getElementById('event-list').innerHTML =
-      '<span class="no-data">Calendar error<br><span class="cal-status">Retrying in 1 min</span></span>';
-  }
-}
-
-function parseIcal(text) {
-  const now = new Date();
-  const events = [];
-  const blocks = text.split('BEGIN:VEVENT');
-  
-  for (let i = 1; i < blocks.length; i++) {
-    const block = blocks[i];
-    const summaryMatch = block.match(/SUMMARY:([^\r\n]+)/);
-    const dtStartMatch = block.match(/DTSTART(?:;[^:]*)?:([^\r\n]+)/);
-    
-    if (!summaryMatch || !dtStartMatch) continue;
-    
-    const summary = summaryMatch[1].trim();
-    const dtStartStr = dtStartMatch[1].trim();
-    const dt = parseIcalDate(dtStartStr);
-    
-    if (!dt || dt < now - 86400000) continue;
-    
-    const allDay = dtStartStr.length === 8;
-    events.push({ summary, dt, allDay });
-  }
-  
-  return events.sort((a, b) => a.dt - b.dt);
-}
-
-function parseIcalDate(s) {
-  s = s.replace(/[TZ]/g, '');
-  if (s.length === 8) {
-    return new Date(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8));
-  }
-  if (s.length >= 12) {
-    return new Date(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8), +s.slice(8,10), +s.slice(10,12));
-  }
-  return null;
-}
-
-function renderEvents(events) {
-  if (!events.length) { 
-    document.getElementById('event-list').innerHTML='<span class="no-data">No upcoming events.</span>'; 
-    return; 
-  }
-  const today=new Date(), tomorrow=new Date(today.getTime()+86400000);
-  document.getElementById('event-list').innerHTML = events.map((ev,i)=>{
-    const isToday=ev.dt.toDateString()===today.toDateString();
-    const isTmrw=ev.dt.toDateString()===tomorrow.toDateString();
-    let when=isToday?'Today':isTmrw?'Tomorrow':ev.dt.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
-    if (!ev.allDay) when+=` · ${ev.dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
-    const dot=['','b','c'][i%3], isLast=i===events.length-1;
-    return `<div class="ev"><div class="ev-spine"><div class="ev-dot ${dot}"></div>${!isLast?'<div class="ev-line"></div>':''}</div><div class="ev-body"><div class="ev-when">${when}</div><div class="ev-title">${ev.summary}</div></div></div>`;
-  }).join('');
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=54.9783&longitude=-1.6178&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m');
+    const d = await r.json();
+    const c = d.current;
+    const codes = {0:'☀️', 1:'☀️', 2:'⛅', 3:'☁️', 45:'🌫️', 48:'🌫️', 51:'🌧️', 53:'🌧️', 55:'🌧️', 61:'🌧️', 63:'🌧️', 65:'🌧️', 71:'❄️', 73:'❄️', 75:'❄️', 80:'🌧️', 81:'⛈️', 82:'⛈️', 85:'❄️', 86:'❄️'};
+    document.getElementById('weather-icon').textContent = codes[c.weather_code] || '🌡️';
+    document.getElementById('weather-temp').textContent = `${Math.round(c.temperature_2m)}°`;
+    document.getElementById('weather-desc').textContent = c.weather_code < 20 ? 'Clear' : c.weather_code < 50 ? 'Cloudy' : c.weather_code < 70 ? 'Rainy' : 'Snowy';
+    document.getElementById('weather-loc').textContent = 'Newcastle upon Tyne';
+    document.getElementById('wd-feels').textContent = `${Math.round(c.temperature_2m)}°C`;
+    document.getElementById('wd-hum').textContent = `${c.relative_humidity_2m}%`;
+    document.getElementById('wd-wind').textContent = `${Math.round(c.wind_speed_10m)} km/h`;
+    document.getElementById('wd-vis').textContent = '10.0 km';
+  } catch(e) { console.error('Weather error:', e); }
 }
 
 // ── CLOCK ──
 function updateClock() {
-  const now=new Date(), h=String(now.getHours()).padStart(2,'0'), m=String(now.getMinutes()).padStart(2,'0');
-  document.getElementById('photo-time').textContent=`${h}:${m}`;
-  document.getElementById('photo-date').textContent=now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('photo-time').textContent = `${h}:${m}`;
+  document.getElementById('photo-date').textContent = now.toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 }
 
 // ── START ──
-updateClock(); setInterval(updateClock,1000);
-fetchPhotos(); setInterval(fetchPhotos, 60*60*1000);
-fetchWeather(); setInterval(fetchWeather,10*60*1000);
-fetchCalendar(); setInterval(fetchCalendar,5*60*1000);
+updateClock();
+setInterval(updateClock, 1000);
+fetchPhotos();
+setInterval(fetchPhotos, 60*60*1000);
+fetchWeather();
+setInterval(fetchWeather, 10*60*1000);
 </script>
 </body>
 </html>
