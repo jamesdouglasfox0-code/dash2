@@ -35,7 +35,7 @@
 
   #weather-card { flex:0 0 auto; }
   #weather-top { display:flex; align-items:flex-end; gap:12px; margin-bottom:18px; }
-  #weather-icon { font-size:48px; line-height:1; padding-bottom:4px; }
+  #weather-icon { font-size:48px; line-height:1; padding-bottom:4px; min-width:48px; }
   #weather-temp { font-family:'DM Serif Display',serif; font-size:68px; line-height:1; letter-spacing:-3px; }
   #weather-info { padding-bottom:6px; }
   #weather-desc { font-size:15px; color:var(--ink-soft); line-height:1.4; }
@@ -45,7 +45,7 @@
   .wd-val   { font-size:16px; font-weight:500; margin-top:3px; }
 
   #calendar-card { flex:1; min-height:0; overflow:hidden; }
-  #event-list { display:flex; flex-direction:column; }
+  #event-list { display:flex; flex-direction:column; overflow-y:auto; }
   .ev { display:flex; gap:14px; align-items:flex-start; padding-bottom:12px; }
   .ev-spine { display:flex; flex-direction:column; align-items:center; padding-top:5px; }
   .ev-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
@@ -215,7 +215,7 @@ async function fetchPhotos() {
       const res = await fetch(makeUrl(ALBUM_URL), { signal: AbortSignal.timeout(10000) });
       if (!res.ok) continue;
       const html = await res.text();
-      const matches = [...html.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/([\/\w\-]+)/g)];
+      const matches = [...html.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/([\w\-]+)/g)];
       const seen = new Set();
       const urls = matches
         .map(m => `https://lh3.googleusercontent.com/pw/${m[1]}=w1920-h1080-k-no`)
@@ -249,70 +249,106 @@ async function fetchWeather() {
     document.getElementById('wd-hum').textContent   = `${d.main.humidity}%`;
     document.getElementById('wd-wind').textContent  = `${Math.round(d.wind.speed)} m/s`;
     document.getElementById('wd-vis').textContent   = `${((d.visibility||0)/1000).toFixed(1)} km`;
-  } catch(e) { console.warn('Weather:', e); }
+  } catch(e) { console.error('Weather fetch error:', e); }
 }
 
-// ── CALENDAR — tries multiple proxies in sequence ──
+// ── CALENDAR — with improved proxy strategy ──
 const ICAL_URLS = [
   'https://calendar.google.com/calendar/ical/jamesdouglasfox0%40gmail.com/private-0919ba055d154812e7522afed138adce/basic.ics',
   'https://calendar.google.com/calendar/ical/francesallanpr%40gmail.com/private-48588be9caf9c4e0de3c3b2278194a52/basic.ics'
 ];
 
-const PROXIES = [
-  // Direct fetch first (works if hosted on Netlify with no CORS issues on the ical server)
-  url => url,
-  // Proxy options as fallbacks
-  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  url => `https://thingproxy.freeboard.io/fetch/${url}`,
-  url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
-
 async function fetchOneCalendar(icalUrl) {
-  for (const makeUrl of PROXIES) {
+  const proxies = [
+    url => url,
+    url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
+  
+  for (const makeUrl of proxies) {
     try {
-      const res = await fetch(makeUrl(icalUrl), { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) continue;
+      const proxyUrl = makeUrl(icalUrl);
+      console.log('Trying calendar proxy:', proxyUrl.substring(0, 80) + '...');
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) {
+        console.warn(`Proxy returned ${res.status}`);
+        continue;
+      }
       const text = await res.text();
-      if (!text.includes('BEGIN:VCALENDAR')) continue;
-      return parseIcal(text);
-    } catch(e) { continue; }
+      if (!text.includes('BEGIN:VCALENDAR')) {
+        console.warn('Response did not contain VCALENDAR');
+        continue;
+      }
+      const events = parseIcal(text);
+      console.log(`Successfully fetched ${events.length} events from calendar`);
+      return events;
+    } catch(e) { 
+      console.warn('Calendar fetch error:', e.message);
+      continue; 
+    }
   }
-  return []; // this calendar failed, return empty
+  console.error('All proxies failed for calendar');
+  return [];
 }
 
 async function fetchCalendar() {
-  const results = await Promise.all(ICAL_URLS.map(fetchOneCalendar));
-  const allEvents = results.flat().sort((a,b) => a.dt - b.dt).slice(0, 7);
-  if (allEvents.length) {
-    renderEvents(allEvents);
-  } else {
+  try {
+    const results = await Promise.all(ICAL_URLS.map(fetchOneCalendar));
+    const allEvents = results.flat().sort((a,b) => a.dt - b.dt).slice(0, 7);
+    if (allEvents.length) {
+      renderEvents(allEvents);
+    } else {
+      document.getElementById('event-list').innerHTML =
+        '<span class="no-data">No upcoming events<br><span class="cal-status">(or calendar unavailable)</span></span>';
+    }
+  } catch(e) {
+    console.error('fetchCalendar error:', e);
     document.getElementById('event-list').innerHTML =
-      '<span class="no-data">Calendar loading…<br><span class="cal-status">Will retry shortly.</span></span>';
-    setTimeout(fetchCalendar, 30000);
+      '<span class="no-data">Calendar error<br><span class="cal-status">Retrying in 1 min</span></span>';
   }
 }
 
 function parseIcal(text) {
   const now = new Date();
-  return text.split('BEGIN:VEVENT').slice(1).map(block => {
-    const get = k => { const m = block.match(new RegExp(`${k}[^:]*:([^\\r\\n]+)`)); return m ? m[1].trim() : ''; };
-    const summary = get('SUMMARY'), dtStart = get('DTSTART');
-    if (!summary || !dtStart) return null;
-    const dt = parseIcalDate(dtStart);
-    if (!dt || dt < now - 86400000) return null;
-    return { summary, dt, allDay: dtStart.replace(/;[^:]+/g,'').length === 8 };
-  }).filter(Boolean).sort((a,b)=>a.dt-b.dt);
+  const events = [];
+  const blocks = text.split('BEGIN:VEVENT');
+  
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i];
+    const summaryMatch = block.match(/SUMMARY:([^\r\n]+)/);
+    const dtStartMatch = block.match(/DTSTART(?:;[^:]*)?:([^\r\n]+)/);
+    
+    if (!summaryMatch || !dtStartMatch) continue;
+    
+    const summary = summaryMatch[1].trim();
+    const dtStartStr = dtStartMatch[1].trim();
+    const dt = parseIcalDate(dtStartStr);
+    
+    if (!dt || dt < now - 86400000) continue;
+    
+    const allDay = dtStartStr.length === 8;
+    events.push({ summary, dt, allDay });
+  }
+  
+  return events.sort((a, b) => a.dt - b.dt);
 }
 
 function parseIcalDate(s) {
-  s = s.replace(/[TZ]/g,'');
-  if (s.length===8) return new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8));
-  return new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8),+s.slice(8,10),+s.slice(10,12));
+  s = s.replace(/[TZ]/g, '');
+  if (s.length === 8) {
+    return new Date(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8));
+  }
+  if (s.length >= 12) {
+    return new Date(+s.slice(0,4), +s.slice(4,6)-1, +s.slice(6,8), +s.slice(8,10), +s.slice(10,12));
+  }
+  return null;
 }
 
 function renderEvents(events) {
-  if (!events.length) { document.getElementById('event-list').innerHTML='<span class="no-data">No upcoming events.</span>'; return; }
+  if (!events.length) { 
+    document.getElementById('event-list').innerHTML='<span class="no-data">No upcoming events.</span>'; 
+    return; 
+  }
   const today=new Date(), tomorrow=new Date(today.getTime()+86400000);
   document.getElementById('event-list').innerHTML = events.map((ev,i)=>{
     const isToday=ev.dt.toDateString()===today.toDateString();
@@ -333,7 +369,7 @@ function updateClock() {
 
 // ── START ──
 updateClock(); setInterval(updateClock,1000);
-fetchPhotos(); setInterval(fetchPhotos, 60*60*1000); // refresh album hourly
+fetchPhotos(); setInterval(fetchPhotos, 60*60*1000);
 fetchWeather(); setInterval(fetchWeather,10*60*1000);
 fetchCalendar(); setInterval(fetchCalendar,5*60*1000);
 </script>
