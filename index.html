@@ -40,17 +40,18 @@
   .wd-val   { font-size:16px; font-weight:500; margin-top:3px; }
 
   #calendar-card { flex:1; min-height:0; overflow:hidden; }
-  #event-list { display:flex; flex-direction:column; overflow-y:auto; }
-  .ev { display:flex; gap:14px; align-items:flex-start; padding-bottom:12px; }
-  .ev-spine { display:flex; flex-direction:column; align-items:center; padding-top:5px; }
-  .ev-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+  #event-list { display:flex; flex-direction:column; overflow-y:auto; gap:0px; }
+  .ev { display:flex; gap:12px; align-items:flex-start; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+  .ev:last-child { border-bottom:none; }
+  .ev-spine { display:flex; flex-direction:column; align-items:center; padding-top:2px; flex-shrink:0; }
+  .ev-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex-shrink:0; }
   .ev-dot.b { background:#7FA3C4; } .ev-dot.c { background:#6BAA7A; }
-  .ev-line { width:1px; flex:1; min-height:14px; background:var(--stone); margin-top:4px; }
+  .ev-line { width:1px; flex:1; min-height:10px; background:var(--stone); margin-top:2px; }
   .ev-body { flex:1; min-width:0; }
-  .ev-when  { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--ink-muted); }
-  .ev-title { font-size:15px; font-weight:500; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ev-when  { font-size:9px; letter-spacing:1px; text-transform:uppercase; color:var(--ink-muted); }
+  .ev-title { font-size:13px; font-weight:500; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ev-user { font-size:8px; letter-spacing:1px; text-transform:uppercase; color:var(--ink-muted); margin-top:2px; opacity:0.7; }
   .no-data  { color:var(--ink-muted); font-size:14px; font-style:italic; }
-  .cal-status { font-size:11px; color:var(--ink-muted); margin-top:8px; }
 
   #cast-hint { position:fixed; bottom:14px; right:18px; font-size:11px; color:var(--ink-muted); opacity:0.4; letter-spacing:0.5px; pointer-events:none; }
 </style>
@@ -90,7 +91,7 @@
       </div>
     </div>
     <div class="side-card" id="calendar-card">
-      <div class="card-label">Upcoming Events</div>
+      <div class="card-label">Upcoming (14 days)</div>
       <div id="event-list"><div class="no-data">Loading calendar…</div></div>
     </div>
   </div>
@@ -227,23 +228,24 @@ async function fetchWeather() {
 }
 
 // ── CALENDAR ──
-const ICAL_URLS = [
-  'https://calendar.google.com/calendar/ical/jamesdouglasfox0%40gmail.com/private-0919ba055d154812e7522afed138adce/basic.ics',
-  'https://calendar.google.com/calendar/ical/francesallanpr%40gmail.com/private-48588be9caf9c4e0de3c3b2278194a52/basic.ics'
+const CALENDARS = [
+  { name: 'James', url: 'https://calendar.google.com/calendar/ical/jamesdouglasfox0%40gmail.com/private-0919ba055d154812e7522afed138adce/basic.ics' },
+  { name: 'Frances', url: 'https://calendar.google.com/calendar/ical/francesallanpr%40gmail.com/private-48588be9caf9c4e0de3c3b2278194a52/basic.ics' }
 ];
 
-async function fetchOneCalendar(icalUrl) {
+async function fetchOneCalendar(cal) {
   const proxies = [
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
   ];
   for (const makeUrl of proxies) {
     try {
-      const res = await fetch(makeUrl(icalUrl), { signal: AbortSignal.timeout(6000) });
+      const res = await fetch(makeUrl(cal.url), { signal: AbortSignal.timeout(6000) });
       if (!res.ok) continue;
       const text = await res.text();
       if (!text.includes('BEGIN:VCALENDAR')) continue;
-      return parseIcal(text);
+      const events = parseIcal(text);
+      return events.map(e => ({ ...e, user: cal.name }));
     } catch(e) { continue; }
   }
   return [];
@@ -251,12 +253,21 @@ async function fetchOneCalendar(icalUrl) {
 
 async function fetchCalendar() {
   try {
-    const results = await Promise.all(ICAL_URLS.map(fetchOneCalendar));
-    const allEvents = results.flat().sort((a, b) => a.dt - b.dt).slice(0, 7);
+    const results = await Promise.all(CALENDARS.map(fetchOneCalendar));
+    let allEvents = results.flat();
+    
+    // Show next 14 days
+    const today = new Date();
+    const twoWeeks = new Date(today.getTime() + 14*24*60*60*1000);
+    
+    allEvents = allEvents
+      .filter(e => e.dt >= today && e.dt <= twoWeeks)
+      .sort((a, b) => a.dt - b.dt);
+    
     if (allEvents.length > 0) {
       renderEvents(allEvents);
     } else {
-      document.getElementById('event-list').innerHTML = '<div class="no-data">No upcoming events</div>';
+      document.getElementById('event-list').innerHTML = '<div class="no-data">No events (next 14 days)</div>';
     }
   } catch (e) {
     console.error('Calendar fetch error:', e);
@@ -266,6 +277,7 @@ async function fetchCalendar() {
 
 function parseIcal(text) {
   const now = new Date();
+  const twoWeeks = new Date(now.getTime() + 14*24*60*60*1000);
   const events = [];
   const blocks = text.split('BEGIN:VEVENT');
   
@@ -280,7 +292,7 @@ function parseIcal(text) {
     const dtStartStr = dtStartMatch[1].trim();
     const dt = parseIcalDate(dtStartStr);
     
-    if (!dt || dt < now - 86400000) continue;
+    if (!dt || dt < now || dt > twoWeeks) continue;
     
     const allDay = dtStartStr.replace(/[TZ;].*/g, '').length === 8;
     events.push({ summary, dt, allDay });
@@ -298,7 +310,7 @@ function parseIcalDate(s) {
 
 function renderEvents(events) {
   if (!events.length) {
-    document.getElementById('event-list').innerHTML = '<div class="no-data">No upcoming events</div>';
+    document.getElementById('event-list').innerHTML = '<div class="no-data">No events (next 14 days)</div>';
     return;
   }
   const today = new Date();
@@ -310,7 +322,7 @@ function renderEvents(events) {
     if (!ev.allDay) when += ` · ${ev.dt.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})}`;
     const dot = ['', 'b', 'c'][i % 3];
     const isLast = i === events.length - 1;
-    return `<div class="ev"><div class="ev-spine"><div class="ev-dot ${dot}"></div>${!isLast ? '<div class="ev-line"></div>' : ''}</div><div class="ev-body"><div class="ev-when">${when}</div><div class="ev-title">${ev.summary}</div></div></div>`;
+    return `<div class="ev"><div class="ev-spine"><div class="ev-dot ${dot}"></div>${!isLast ? '<div class="ev-line"></div>' : ''}</div><div class="ev-body"><div class="ev-when">${when}</div><div class="ev-title">${ev.summary}</div><div class="ev-user">${ev.user}</div></div></div>`;
   }).join('');
 }
 
